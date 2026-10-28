@@ -1,0 +1,957 @@
+package questionnaire
+
+import "strconv"
+
+func kindBadgeLabel(k QuestionKind, multi bool) string {
+	switch k {
+	case KindFreeText:
+		return "Free text"
+	case KindQCMWithFreeText:
+		if multi {
+			return "QCM (Choix multiple) + Free text"
+		}
+		return "QCM (Choix unique) + Free text"
+	case KindBooleanChecklist:
+		return "Boolean Checklist (Yes / No)"
+	default:
+		return string(k)
+	}
+}
+
+func freeTextLabelOrDefault(q QuestionItem) string {
+	if q.FreeTextLabel != "" {
+		return q.FreeTextLabel
+	}
+	if q.Kind == KindFreeText {
+		return "Detailed answer:"
+	}
+	return "Optional amendment or additional constraint (free text):"
+}
+
+func freeTextPlaceholderOrDefault(q QuestionItem) string {
+	if q.FreeTextPlaceholder != "" {
+		return q.FreeTextPlaceholder
+	}
+	if q.Kind == KindFreeText {
+		return "Enter your decision, constraints, or domain rules..."
+	}
+	return "Specify any caveat, hybrid variant, or custom constraint..."
+}
+
+templ RenderPage(spec QuestionnaireSpec, submitEndpoint string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>askhuman — { spec.Title } ({ spec.Project })</title>
+			<style>
+				:root {
+					color-scheme: light dark;
+					--brand-color: #0d9488;
+					--brand-hover: #0f766e;
+					--brand-soft: rgba(13, 148, 136, 0.12);
+					--bg-page: #f8fafc;
+					--bg-card: #ffffff;
+					--bg-muted: #f1f5f9;
+					--text-main: #0f172a;
+					--text-muted: #475569;
+					--border-color: #cbd5e1;
+					--rec-bg: #ecfdf5;
+					--rec-text: #065f46;
+					--rec-border: #6ee7b7;
+					--warn-bg: #fffbeb;
+					--warn-text: #92400e;
+					--radius: 10px;
+				}
+				@media (prefers-color-scheme: dark) {
+					:root {
+						--brand-color: #2dd4bf;
+						--brand-hover: #5eead4;
+						--brand-soft: rgba(45, 212, 191, 0.14);
+						--bg-page: #0b1120;
+						--bg-card: #111827;
+						--bg-muted: #1e293b;
+						--text-main: #f1f5f9;
+						--text-muted: #94a3b8;
+						--border-color: #334155;
+						--rec-bg: rgba(16, 185, 129, 0.15);
+						--rec-text: #6ee7b7;
+						--rec-border: #059669;
+						--warn-bg: rgba(245, 158, 11, 0.15);
+						--warn-text: #fcd34d;
+					}
+				}
+				* {
+					box-sizing: border-box;
+				}
+				body {
+					margin: 0;
+					padding: 0;
+					font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+					background: var(--bg-page);
+					color: var(--text-main);
+					accent-color: var(--brand-color);
+					line-height: 1.55;
+				}
+				.ask-topbar {
+					position: sticky;
+					top: 0;
+					z-index: 30;
+					background: var(--bg-card);
+					border-bottom: 1px solid var(--border-color);
+					padding: 0.75rem 1.5rem;
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					justify-content: space-between;
+					gap: 1rem;
+					box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+				}
+				.ask-brand {
+					display: flex;
+					align-items: center;
+					gap: 0.75rem;
+				}
+				.ask-badge-proto {
+					background: var(--brand-color);
+					color: #042f2e;
+					font-weight: 700;
+					font-size: 0.78rem;
+					padding: 0.2rem 0.55rem;
+					border-radius: 6px;
+					letter-spacing: 0.04em;
+					text-transform: uppercase;
+				}
+				.ask-progress-wrap {
+					display: flex;
+					align-items: center;
+					gap: 0.75rem;
+					font-size: 0.9rem;
+					color: var(--text-muted);
+				}
+				progress {
+					width: 140px;
+					height: 10px;
+				}
+				.ask-toolbar {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 0.5rem;
+				}
+				button, .ask-btn {
+					cursor: pointer;
+					font: inherit;
+					font-size: 0.875rem;
+					font-weight: 600;
+					padding: 0.5rem 0.9rem;
+					border-radius: 8px;
+					border: 1px solid var(--border-color);
+					background: var(--bg-muted);
+					color: var(--text-main);
+					transition: all 0.15s ease;
+				}
+				button:hover {
+					border-color: var(--brand-color);
+				}
+				.ask-btn-primary {
+					background: var(--brand-color);
+					color: #042f2e;
+					border-color: var(--brand-color);
+				}
+				.ask-btn-primary:hover {
+					background: var(--brand-hover);
+				}
+				.ask-container {
+					max-width: 1040px;
+					margin: 0 auto;
+					padding: 1.75rem 1.25rem 4rem;
+				}
+				.ask-hero {
+					background: var(--bg-card);
+					border: 1px solid var(--border-color);
+					border-radius: var(--radius);
+					padding: 1.5rem;
+					margin-bottom: 1.75rem;
+				}
+				.ask-hero h1 {
+					margin: 0 0 0.4rem 0;
+					font-size: 1.5rem;
+				}
+				.ask-meta {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 0.6rem;
+					margin-bottom: 1rem;
+					font-size: 0.85rem;
+					color: var(--text-muted);
+				}
+				.ask-meta span {
+					background: var(--bg-muted);
+					padding: 0.2rem 0.6rem;
+					border-radius: 6px;
+					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+				}
+				.ask-prereq {
+					background: var(--bg-muted);
+					border-left: 4px solid var(--brand-color);
+					padding: 0.9rem 1.1rem;
+					border-radius: 0 8px 8px 0;
+					margin-top: 1rem;
+					font-size: 0.92rem;
+				}
+				.ask-prereq ul {
+					margin: 0.4rem 0 0 1.2rem;
+					padding: 0;
+				}
+				.ask-section {
+					margin-top: 2.2rem;
+				}
+				.ask-section-header {
+					border-bottom: 2px solid var(--border-color);
+					padding-bottom: 0.5rem;
+					margin-bottom: 1.25rem;
+				}
+				.ask-section-header h2 {
+					margin: 0;
+					font-size: 1.25rem;
+				}
+				.ask-section-header p {
+					margin: 0.3rem 0 0;
+					color: var(--text-muted);
+					font-size: 0.92rem;
+				}
+				.ask-card {
+					background: var(--bg-card);
+					border: 1px solid var(--border-color);
+					border-radius: var(--radius);
+					padding: 1.35rem;
+					margin-bottom: 1.25rem;
+					transition: border-color 0.15s ease;
+				}
+				.ask-card:has(input:checked), .ask-card.is-answered {
+					border-color: var(--brand-color);
+				}
+				.ask-card-head {
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					justify-content: space-between;
+					gap: 0.5rem;
+					margin-bottom: 0.6rem;
+				}
+				.ask-qid {
+					font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+					font-weight: 700;
+					font-size: 0.85rem;
+					color: var(--brand-color);
+				}
+				.ask-badges {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 0.4rem;
+				}
+				.ask-pill {
+					font-size: 0.75rem;
+					padding: 0.15rem 0.55rem;
+					border-radius: 999px;
+					background: var(--bg-muted);
+					color: var(--text-muted);
+					font-weight: 600;
+				}
+				.ask-pill-req {
+					background: var(--warn-bg);
+					color: var(--warn-text);
+				}
+				.ask-qtitle {
+					margin: 0 0 0.5rem 0;
+					font-size: 1.1rem;
+				}
+				.ask-qcontext {
+					margin: 0 0 1rem 0;
+					color: var(--text-muted);
+					font-size: 0.92rem;
+				}
+				.ask-options {
+					display: flex;
+					flex-direction: column;
+					gap: 0.65rem;
+					margin-bottom: 1rem;
+				}
+				.ask-option {
+					display: flex;
+					align-items: flex-start;
+					gap: 0.75rem;
+					padding: 0.85rem 1rem;
+					border: 1px solid var(--border-color);
+					border-radius: 8px;
+					background: var(--bg-page);
+					cursor: pointer;
+					transition: all 0.12s ease;
+				}
+				.ask-option:hover {
+					border-color: var(--brand-color);
+				}
+				.ask-option:has(input:checked) {
+					background: var(--brand-soft);
+					border-color: var(--brand-color);
+				}
+				.ask-option input {
+					margin-top: 0.25rem;
+					transform: scale(1.15);
+					flex-shrink: 0;
+				}
+				.ask-option-body {
+					flex: 1;
+				}
+				.ask-option-title {
+					font-weight: 600;
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					gap: 0.5rem;
+				}
+				.ask-rec-tag {
+					font-size: 0.72rem;
+					padding: 0.1rem 0.5rem;
+					border-radius: 6px;
+					background: var(--rec-bg);
+					color: var(--rec-text);
+					border: 1px solid var(--rec-border);
+					font-weight: 700;
+				}
+				.ask-option-rationale {
+					margin-top: 0.25rem;
+					font-size: 0.86rem;
+					color: var(--text-muted);
+				}
+				.ask-freetext-wrap {
+					margin-top: 0.75rem;
+				}
+				.ask-freetext-wrap label {
+					display: block;
+					font-size: 0.85rem;
+					font-weight: 600;
+					color: var(--text-muted);
+					margin-bottom: 0.35rem;
+				}
+				textarea {
+					width: 100%;
+					min-height: 78px;
+					padding: 0.7rem 0.85rem;
+					border-radius: 8px;
+					border: 1px solid var(--border-color);
+					background: var(--bg-page);
+					color: var(--text-main);
+					font: inherit;
+					font-size: 0.92rem;
+					resize: vertical;
+				}
+				textarea:focus {
+					outline: 2px solid var(--brand-color);
+					border-color: transparent;
+				}
+				.ask-preview-box {
+					margin-top: 2rem;
+					background: var(--bg-card);
+					border: 1px solid var(--border-color);
+					border-radius: var(--radius);
+					padding: 1.25rem;
+				}
+				.ask-preview-box pre {
+					background: var(--bg-page);
+					border: 1px solid var(--border-color);
+					border-radius: 8px;
+					padding: 1rem;
+					overflow-x: auto;
+					font-size: 0.84rem;
+					max-height: 420px;
+					white-space: pre-wrap;
+				}
+				.ask-toast {
+					display: none;
+					position: fixed;
+					bottom: 1.5rem;
+					right: 1.5rem;
+					z-index: 100;
+					max-width: 460px;
+					padding: 0.9rem 1.2rem;
+					border-radius: 10px;
+					font-weight: 600;
+					box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+				}
+				.ask-toast.ok {
+					display: block;
+					background: var(--rec-bg);
+					color: var(--rec-text);
+					border: 2px solid var(--rec-border);
+				}
+				.ask-toast.err {
+					display: block;
+					background: var(--warn-bg);
+					color: var(--warn-text);
+					border: 2px solid var(--warn-text);
+				}
+				.ask-footer-actions {
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					justify-content: flex-end;
+					gap: 0.75rem;
+					margin-top: 1.5rem;
+					padding: 1.25rem;
+					background: var(--bg-card);
+					border: 1px solid var(--border-color);
+					border-radius: var(--radius);
+				}
+			</style>
+		</head>
+		<body
+			data-project={ spec.Project }
+			data-workflow={ spec.WorkflowID }
+			data-workstep={ spec.WorkstepID }
+			data-submit-endpoint={ submitEndpoint }
+		>
+			<header class="ask-topbar">
+				<div class="ask-brand">
+					<span class="ask-badge-proto">askhuman</span>
+					<strong>{ spec.Project }</strong>
+					<span style="color:var(--text-muted)">({ spec.WorkflowID } / { spec.WorkstepID })</span>
+				</div>
+				<div class="ask-progress-wrap">
+					<span id="ask-progress-label">0 / { strconv.Itoa(len(spec.Questions)) } answered</span>
+					<progress id="ask-progress-bar" value="0" max={ strconv.Itoa(len(spec.Questions)) }></progress>
+				</div>
+				<div class="ask-toolbar">
+					<button type="button" id="btn-apply-rec" title="Select all recommended options">
+						Apply recommendations
+					</button>
+					<button type="button" id="btn-clear-all" title="Clear all selections across all questions">
+						Clear all
+					</button>
+					<button type="button" id="btn-copy-md">
+						Copy Markdown
+					</button>
+					<button type="button" id="btn-dl-md">
+						Download .md
+					</button>
+					<button type="button" id="btn-dl-json">
+						Download .json
+					</button>
+					if submitEndpoint != "" {
+						<button type="button" id="btn-submit-server" class="ask-btn-primary">
+							Submit decisions
+						</button>
+					}
+				</div>
+			</header>
+			<main class="ask-container">
+				<div id="ask-status-banner" class="ask-toast"></div>
+				<section class="ask-hero">
+					<div class="ask-meta">
+						<span>project: { spec.Project }</span>
+						<span>workflow: { spec.WorkflowID }</span>
+						<span>workstep: { spec.WorkstepID }</span>
+						<span>questions: { strconv.Itoa(len(spec.Questions)) }</span>
+					</div>
+					<h1>{ spec.Title }</h1>
+					if spec.Subtitle != "" {
+						<p style="color:var(--text-muted);margin:0.25rem 0 0.75rem 0;">{ spec.Subtitle }</p>
+					}
+					if spec.ContextSummary != "" {
+						<p style="margin:0.5rem 0 0 0;">{ spec.ContextSummary }</p>
+					}
+					if len(spec.Prerequisites) > 0 {
+						<div class="ask-prereq">
+							<strong>Prerequisites:</strong>
+							<ul>
+								for _, pr := range spec.Prerequisites {
+									<li>{ pr }</li>
+								}
+							</ul>
+						</div>
+					}
+				</section>
+				<form id="askhuman-form" novalidate>
+					if len(spec.Sections) > 0 {
+						for _, sec := range spec.Sections {
+							<section class="ask-section" id={ "sec-" + sec.ID }>
+								<div class="ask-section-header">
+									<h2>{ sec.Title }</h2>
+									if sec.Description != "" {
+										<p>{ sec.Description }</p>
+									}
+								</div>
+								for _, q := range QuestionsForSection(spec, sec.ID) {
+									@renderQuestionCard(q)
+								}
+							</section>
+						}
+					} else {
+						for _, q := range spec.Questions {
+							@renderQuestionCard(q)
+						}
+					}
+					<section class="ask-section">
+						<div class="ask-card">
+							<div class="ask-card-head">
+								<span class="ask-qid">GENERAL-NOTE</span>
+								<span class="ask-pill">Cross-cutting free text</span>
+							</div>
+							<h3 class="ask-qtitle"> Additional directives or cross-cutting notes</h3>
+							<div class="ask-freetext-wrap">
+								<label for="general-note-input">General notes:</label>
+								<textarea id="general-note-input" placeholder="Add any global directive, exclusion, or ordering priority..."></textarea>
+							</div>
+						</div>
+					</section>
+					if submitEndpoint != "" {
+						<div class="ask-footer-actions">
+							<span id="ask-submit-inline-status" style="font-weight:600;color:var(--text-muted);">Ready to submit your decisions.</span>
+							<button type="button" id="btn-submit-server-bottom" class="ask-btn-primary" style="padding:0.65rem 1.4rem;font-size:0.95rem;">
+								Submit decisions
+							</button>
+						</div>
+					}
+				</form>
+				<section class="ask-preview-box">
+					<h3 style="margin-top:0;">Live Markdown Decision Preview</h3>
+					<pre id="ask-md-preview"></pre>
+				</section>
+			</main>
+			<script>
+				(function() {
+					const body = document.body;
+					const project = body.dataset.project || "projet";
+					const workflow = body.dataset.workflow || "wf-besoin";
+					const workstep = body.dataset.workstep || "ws-1.4-entretien";
+					const submitEndpoint = body.dataset.submitEndpoint || "";
+					const storageKey = "askhuman_" + project + "_" + workstep;
+
+					const cards = Array.from(document.querySelectorAll(".ask-card[data-qid]"));
+					const generalNoteEl = document.getElementById("general-note-input");
+					const progressBar = document.getElementById("ask-progress-bar");
+					const progressLabel = document.getElementById("ask-progress-label");
+					const mdPreview = document.getElementById("ask-md-preview");
+					const banner = document.getElementById("ask-status-banner");
+
+					function showBanner(msg, isErr) {
+						banner.textContent = msg;
+						banner.className = "ask-toast " + (isErr ? "err" : "ok");
+					}
+
+					function collectSubmission() {
+						const answers = [];
+						let answeredCount = 0;
+
+						for (const card of cards) {
+							const qid = card.dataset.qid;
+							const kind = card.dataset.kind;
+							const freeEl = card.querySelector("textarea.ask-q-freetext");
+							const freeText = freeEl ? freeEl.value.trim() : "";
+
+							const selectedOptions = [];
+							const booleanChecks = {};
+							let hasAnswer = false;
+
+							if (kind === "free_text") {
+								if (freeText.length > 0) {
+									hasAnswer = true;
+								}
+							} else if (kind === "qcm_free_text") {
+								const inputs = card.querySelectorAll("input.ask-q-opt");
+								inputs.forEach(inp => {
+									if (inp.checked) {
+										selectedOptions.push(inp.value);
+									}
+								});
+								if (selectedOptions.length > 0 || freeText.length > 0 || card.dataset.explicitlyCleared === "true") {
+									hasAnswer = true;
+								}
+							} else if (kind === "boolean_checklist") {
+								const inputs = card.querySelectorAll("input.ask-q-bool");
+								inputs.forEach(inp => {
+									booleanChecks[inp.value] = Boolean(inp.checked);
+									if (inp.checked) {
+										selectedOptions.push(inp.value);
+									}
+								});
+								hasAnswer = true;
+							}
+
+							card.classList.toggle("is-answered", hasAnswer);
+							if (hasAnswer) {
+								answeredCount++;
+							}
+
+							const ans = { question_id: qid };
+							if (selectedOptions.length > 0) {
+								ans.selected_options = selectedOptions;
+							} else if (kind === "qcm_free_text" && card.dataset.explicitlyCleared === "true") {
+								ans.explicit_none = true;
+							}
+							if (kind === "boolean_checklist") {
+								ans.boolean_checks = booleanChecks;
+							}
+							if (freeText.length > 0) {
+								ans.free_text = freeText;
+							}
+							answers.push(ans);
+						}
+
+						if (progressBar && progressLabel) {
+							progressBar.value = answeredCount;
+							progressLabel.textContent = answeredCount + " / " + cards.length + " answered";
+						}
+
+						return {
+							project: project,
+							workflow_id: workflow,
+							workstep_id: workstep,
+							submitted_at: new Date().toISOString(),
+							general_note: generalNoteEl ? generalNoteEl.value.trim() : "",
+							answers: answers
+						};
+					}
+
+					function buildMarkdown(sub) {
+						const lines = [];
+						lines.push("");
+						lines.push("# User Arbitration (`" + workflow + "` / `" + workstep + "`) — " + project);
+						lines.push("");
+						for (const card of cards) {
+							const qid = card.dataset.qid;
+							const axis = card.dataset.axis;
+							const kind = card.dataset.kind;
+							const title = card.dataset.title;
+							const freeEl = card.querySelector("textarea.ask-q-freetext");
+							const freeText = freeEl ? freeEl.value.trim() : "";
+
+							lines.push("## `" + qid + "` [" + axis + "] — " + title);
+							lines.push("");
+
+							if (kind === "free_text") {
+								lines.push("- **Decision (free text)**: " + (freeText || "*(empty)*"));
+							} else if (kind === "qcm_free_text") {
+								const checked = Array.from(card.querySelectorAll("input.ask-q-opt:checked"));
+								if (checked.length === 0) {
+									lines.push("- **Selected option(s)**: *(none — explicit none)*");
+								} else {
+									lines.push("- **Selected option(s)**:");
+									checked.forEach(inp => {
+										lines.push("  - `" + inp.value + "` : " + (inp.dataset.label || inp.value));
+									});
+								}
+								if (freeText) {
+									lines.push("- **Free-text amendment**: " + freeText);
+								}
+							} else if (kind === "boolean_checklist") {
+								lines.push("- **Boolean assertions (Yes / No)**:");
+								const bools = Array.from(card.querySelectorAll("input.ask-q-bool"));
+								bools.forEach(inp => {
+									const st = inp.checked ? "YES" : "NO";
+									lines.push("  - **[" + st + "]** `" + inp.value + "` — " + (inp.dataset.label || inp.value));
+								});
+								if (freeText) {
+									lines.push("- **Additional notes**: " + freeText);
+								}
+							}
+							lines.push("");
+						}
+						if (sub.general_note) {
+							lines.push("## General Note");
+							lines.push("");
+							lines.push(sub.general_note);
+							lines.push("");
+						}
+						return lines.join("\n");
+					}
+
+					function syncRadioState() {
+						document.querySelectorAll("input[type='radio'].ask-q-opt").forEach(inp => {
+							inp.dataset.wasChecked = inp.checked ? "true" : "false";
+						});
+					}
+
+					function refreshAll() {
+						syncRadioState();
+						const sub = collectSubmission();
+						const md = buildMarkdown(sub);
+						if (mdPreview) {
+							mdPreview.textContent = md;
+						}
+						try {
+							localStorage.setItem(storageKey, JSON.stringify(sub));
+						} catch (_) {}
+						return { sub, md };
+					}
+
+					function applyRecommendations() {
+						cards.forEach(c => { c.dataset.explicitlyCleared = "false"; });
+						document.querySelectorAll("input.ask-q-opt[data-recommended='true']").forEach(inp => {
+							inp.checked = true;
+						});
+						document.querySelectorAll("input.ask-q-bool[data-default-checked='true']").forEach(inp => {
+							inp.checked = true;
+						});
+						refreshAll();
+						showBanner("Recommendations applied. You can adjust any option, click a radio choice again to deselect it, or add free-text notes.", false);
+					}
+
+					function clearAllSelections() {
+						document.querySelectorAll("input.ask-q-opt, input.ask-q-bool").forEach(inp => {
+							inp.checked = false;
+						});
+						cards.forEach(c => { c.dataset.explicitlyCleared = "true"; });
+						refreshAll();
+						showBanner("All selections cleared.", false);
+					}
+
+					// Cliquer sur un bouton radio déjà sélectionné le désélectionne ("ne rien cocher")
+					document.querySelectorAll("input[type='radio'].ask-q-opt").forEach(inp => {
+						inp.dataset.wasChecked = inp.checked ? "true" : "false";
+						inp.addEventListener("click", function() {
+							const card = inp.closest(".ask-card[data-qid]");
+							if (inp.dataset.wasChecked === "true") {
+								inp.checked = false;
+								inp.dataset.wasChecked = "false";
+								if (card) {
+									card.dataset.explicitlyCleared = "true";
+								}
+							} else if (card) {
+								card.dataset.explicitlyCleared = "false";
+							}
+							refreshAll();
+						});
+					});
+
+					document.querySelectorAll(".ask-btn-clear-card").forEach(btn => {
+						btn.addEventListener("click", function() {
+							const card = btn.closest(".ask-card[data-qid]");
+							if (!card) return;
+							card.querySelectorAll("input.ask-q-opt, input.ask-q-bool").forEach(inp => {
+								inp.checked = false;
+							});
+							card.dataset.explicitlyCleared = "true";
+							refreshAll();
+						});
+					});
+
+					function downloadBlob(filename, content, mime) {
+						const blob = new Blob([content], { type: mime });
+						const url = URL.createObjectURL(blob);
+						const a = document.createElement("a");
+						a.href = url;
+						a.download = filename;
+						document.body.appendChild(a);
+						a.click();
+						document.body.removeChild(a);
+						URL.revokeObjectURL(url);
+					}
+
+					document.getElementById("askhuman-form").addEventListener("input", refreshAll);
+					document.getElementById("askhuman-form").addEventListener("change", refreshAll);
+
+					const btnRec = document.getElementById("btn-apply-rec");
+					if (btnRec) {
+						btnRec.addEventListener("click", applyRecommendations);
+					}
+
+					const btnClearAll = document.getElementById("btn-clear-all");
+					if (btnClearAll) {
+						btnClearAll.addEventListener("click", clearAllSelections);
+					}
+
+					const btnCopy = document.getElementById("btn-copy-md");
+					if (btnCopy) {
+						btnCopy.addEventListener("click", async () => {
+							const { md } = refreshAll();
+							try {
+								await navigator.clipboard.writeText(md);
+								showBanner("Markdown copied to clipboard.", false);
+							} catch (e) {
+								showBanner("Impossible de copier automatiquement : utilisez Download .md.", true);
+							}
+						});
+					}
+
+					const btnDlMd = document.getElementById("btn-dl-md");
+					if (btnDlMd) {
+						btnDlMd.addEventListener("click", () => {
+							const { md } = refreshAll();
+							downloadBlob(project + "-decisions.md", md, "text/markdown;charset=utf-8");
+						});
+					}
+
+					const btnDlJson = document.getElementById("btn-dl-json");
+					if (btnDlJson) {
+						btnDlJson.addEventListener("click", () => {
+							const { sub } = refreshAll();
+							downloadBlob(project + "-answers.json", JSON.stringify(sub, null, 2), "application/json;charset=utf-8");
+						});
+					}
+
+					const submitButtons = [
+						document.getElementById("btn-submit-server"),
+						document.getElementById("btn-submit-server-bottom")
+					].filter(Boolean);
+					const inlineStatus = document.getElementById("ask-submit-inline-status");
+
+					async function submitToServer() {
+						const { sub, md } = refreshAll();
+						submitButtons.forEach(b => { b.textContent = "Submitting..."; });
+						try {
+							const resp = await fetch(submitEndpoint, {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify(sub)
+							});
+							const data = await resp.json();
+							if (!resp.ok) {
+								const errMsg = "Validation error: " + (data.error || resp.statusText);
+								showBanner(errMsg, true);
+								if (inlineStatus) inlineStatus.textContent = errMsg;
+								submitButtons.forEach(b => { b.textContent = "Submit decisions"; });
+								return;
+							}
+							const okMsg = "✓ Decisions saved (" + (data.markdown_path || data.json_path || "OK") + ").";
+							showBanner(okMsg, false);
+							if (inlineStatus) inlineStatus.textContent = okMsg;
+							submitButtons.forEach(b => { b.textContent = "✓ Saved!"; });
+						} catch (err) {
+							downloadBlob(project + "-answers.json", JSON.stringify(sub, null, 2), "application/json;charset=utf-8");
+							const fallbackMsg = "Offline file mode detected: JSON download triggered.";
+							showBanner(fallbackMsg, false);
+							if (inlineStatus) inlineStatus.textContent = fallbackMsg;
+							submitButtons.forEach(b => { b.textContent = "✓ JSON downloaded"; });
+						}
+					}
+
+					if (submitEndpoint) {
+						submitButtons.forEach(btn => {
+							btn.addEventListener("click", submitToServer);
+						});
+					}
+
+					refreshAll();
+				})();
+			</script>
+		</body>
+	</html>
+}
+
+templ renderQuestionCard(q QuestionItem) {
+	<article
+		class="ask-card"
+		id={ "q-" + q.ID }
+		data-qid={ q.ID }
+		data-axis={ q.Axis }
+		data-kind={ string(q.Kind) }
+		data-title={ q.Title }
+	>
+		<div class="ask-card-head">
+			<span class="ask-qid">{ q.ID } · { q.Axis }</span>
+			<div class="ask-badges">
+				if q.Kind != KindFreeText {
+					<button type="button" class="ask-btn-clear-card" style="padding:0.15rem 0.55rem;font-size:0.75rem;" title="Clear selection on this question">
+						Clear selection
+					</button>
+				}
+				<span class="ask-pill">{ kindBadgeLabel(q.Kind, q.MultiSelect) }</span>
+				if q.Required {
+					<span class="ask-pill ask-pill-req">Required</span>
+				}
+			</div>
+		</div>
+		<h3 class="ask-qtitle">{ q.Title }</h3>
+		if q.Context != "" {
+			<p class="ask-qcontext">{ q.Context }</p>
+		}
+		if q.Kind == KindQCMWithFreeText {
+			<div class="ask-options">
+				for _, opt := range q.Options {
+					<label class="ask-option" for={ "opt-" + q.ID + "-" + opt.ID }>
+						if q.MultiSelect {
+							<input
+								type="checkbox"
+								class="ask-q-opt"
+								id={ "opt-" + q.ID + "-" + opt.ID }
+								name={ "q-" + q.ID }
+								value={ opt.ID }
+								data-label={ opt.Label }
+								if opt.Recommended {
+									data-recommended="true"
+								}
+								checked?={ opt.DefaultChecked || opt.Recommended }
+							/>
+						} else {
+							<input
+								type="radio"
+								class="ask-q-opt"
+								id={ "opt-" + q.ID + "-" + opt.ID }
+								name={ "q-" + q.ID }
+								value={ opt.ID }
+								data-label={ opt.Label }
+								if opt.Recommended {
+									data-recommended="true"
+								}
+								checked?={ opt.DefaultChecked || opt.Recommended }
+							/>
+						}
+						<div class="ask-option-body">
+							<div class="ask-option-title">
+								<span><code>{ opt.ID }</code> — { opt.Label }</span>
+								if opt.Recommended {
+									<span class="ask-rec-tag">Recommended</span>
+								}
+							</div>
+							if opt.Rationale != "" {
+								<div class="ask-option-rationale">{ opt.Rationale }</div>
+							}
+						</div>
+					</label>
+				}
+			</div>
+		}
+		if q.Kind == KindBooleanChecklist {
+			<div class="ask-options">
+				for _, opt := range q.Options {
+					<label class="ask-option" for={ "bool-" + q.ID + "-" + opt.ID }>
+						<input
+							type="checkbox"
+							class="ask-q-bool"
+							id={ "bool-" + q.ID + "-" + opt.ID }
+							name={ "bool-" + q.ID + "-" + opt.ID }
+							value={ opt.ID }
+							data-label={ opt.Label }
+							if opt.DefaultChecked || opt.Recommended {
+								data-default-checked="true"
+							}
+							checked?={ opt.DefaultChecked || opt.Recommended }
+						/>
+						<div class="ask-option-body">
+							<div class="ask-option-title">
+								<span><strong>[YES / NO]</strong> <code>{ opt.ID }</code> — { opt.Label }</span>
+								if opt.Recommended {
+									<span class="ask-rec-tag">Default enabled</span>
+								}
+							</div>
+							if opt.Rationale != "" {
+								<div class="ask-option-rationale">{ opt.Rationale }</div>
+							}
+						</div>
+					</label>
+				}
+			</div>
+		}
+		<div class="ask-freetext-wrap">
+			<label for={ "ft-" + q.ID }>{ freeTextLabelOrDefault(q) }</label>
+			<textarea
+				class="ask-q-freetext"
+				id={ "ft-" + q.ID }
+				name={ "ft-" + q.ID }
+				placeholder={ freeTextPlaceholderOrDefault(q) }
+			></textarea>
+		</div>
+	</article>
+}
